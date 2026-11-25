@@ -2,7 +2,20 @@
   "appId": "com.rea.resumeanalyzer",
   "appName": "ReA",
   "webDir": "dist",
+  "backgroundColor": "#FBF4EB",
+  "android": {
+    "allowMixedContent": false
+  },
   "server": {
+    "url": "https://reakcc.netlify.app/",
+    "cleartext": false,
     "androidScheme": "https"
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#FBF4EB",
+      "overlaysWebView": false
+    }
   }
 }

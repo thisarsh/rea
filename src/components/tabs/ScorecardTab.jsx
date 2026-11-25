@@ -26,6 +26,7 @@ export default function ScorecardTab({ data }) {
 
   const {
     atsScore = 82,
+    candidateName = 'Candidate Resume',
     profileRole = 'Software Engineer',
     experienceLevel = 'Fresher',
     categoryScores = {},
@@ -52,6 +53,18 @@ export default function ScorecardTab({ data }) {
         <div className="absolute top-16 -right-12 w-40 h-40 rounded-full bg-[#F5EBE0]/50 pointer-events-none" />
 
         <div className="relative z-10 flex flex-col items-center">
+          {/* Candidate Name right above ATS score */}
+          {candidateName && (
+            <div className="mb-2.5 flex flex-col items-center">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[#9C5A25]">
+                Resume Report
+              </span>
+              <h2 className="text-[19px] font-extrabold text-[#2A190E] tracking-tight leading-snug">
+                {candidateName}
+              </h2>
+            </div>
+          )}
+
           <RadialGauge score={atsScore} size={160} strokeWidth={13} />
 
           {/* Stacked Pill Badges matching Screenshot 1 */}

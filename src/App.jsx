@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import Header from './components/layout/Header';
 import BottomNav from './components/layout/BottomNav';
 import UploadTab from './components/tabs/UploadTab';
@@ -18,6 +19,30 @@ export default function App() {
   const [error, setError] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
+  // Sync browser theme-color and native Android StatusBar (matching dilwali /wallet: non-overlapping light bar)
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      let metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (!metaTheme) {
+        metaTheme = document.createElement('meta');
+        metaTheme.name = 'theme-color';
+        document.head.appendChild(metaTheme);
+      }
+      metaTheme.setAttribute('content', '#FBF4EB');
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      import('@capacitor/status-bar')
+        .then(({ StatusBar, Style }) => {
+          StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+          StatusBar.setStyle({ style: Style.Light }).catch(() => {});
+          StatusBar.setBackgroundColor({ color: '#FBF4EB' }).catch(() => {});
+          StatusBar.show().catch(() => {});
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   const handleAnalyze = async (text, name = 'Resume') => {
     setIsLoading(true);
     setError(null);
@@ -25,7 +50,7 @@ export default function App() {
     setResumeName(name);
 
     try {
-      const result = await analyzeResume(text);
+      const result = await analyzeResume(text, name);
       setAnalysisResult(result);
       setActiveTab('score');
       showToast('AI Analysis Complete!');
@@ -56,7 +81,7 @@ export default function App() {
       <div className="dilwali-app-container relative z-10 !bg-[#FBF4EB]">
         {/* Organic Cream Wave Accents matching all reference screens */}
         <div
-          className="absolute -top-6 -right-12 w-72 h-44 rounded-full bg-[#F1E2D0]/65 blur-2xl pointer-events-none"
+          className="absolute top-14 -right-12 w-72 h-44 rounded-full bg-[#F1E2D0]/65 blur-2xl pointer-events-none"
           aria-hidden="true"
         />
         <div

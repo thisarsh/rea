@@ -13,20 +13,76 @@ const PRIMARY_MODEL = 'qwen/qwen3.8-27b';
 const FALLBACK_MODEL = 'openai/gpt-oss-20b';
 
 /**
+ * Cleanly extract candidate's full name from top lines of resume or filename fallback
+ */
+function toTitleCaseName(str) {
+  return str
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export function extractCandidateName(resumeText, fallbackFileName = '') {
+  const lines = String(resumeText || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const ignoredTerms = /^(resume|curriculum\s*vitae|cv|summary|objective|education|experience|skills|projects|profile|contact|portfolio|page\s*\d+)$/i;
+
+  for (const line of lines.slice(0, 8)) {
+    // Take text before pipe/bullet separator if contact info is on same line
+    const candidateChunk = line.split(/[|•·—]/)[0].trim();
+    if (!candidateChunk) continue;
+    if (/@|http|www\.|github\.|linkedin\.|\d{3,}/i.test(candidateChunk)) continue;
+    if (ignoredTerms.test(candidateChunk)) continue;
+
+    // Strip leading labels like "Name:"
+    const cleaned = candidateChunk.replace(/^name\s*[:-]\s*/i, '').replace(/[^a-zA-Z.\s'-]/g, '').trim();
+    const words = cleaned.split(/\s+/).filter(Boolean);
+
+    if (words.length >= 1 && words.length <= 4 && cleaned.length >= 3 && cleaned.length <= 42) {
+      return toTitleCaseName(cleaned);
+    }
+  }
+
+  // Fallback to cleaned file name
+  if (fallbackFileName) {
+    const base = fallbackFileName
+      .replace(/\.(pdf|txt|docx?)$/i, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b(resume|cv|final|updated|demo)\b/gi, '')
+      .trim();
+    if (base.length >= 2) return toTitleCaseName(base);
+  }
+
+  return 'Candidate Resume';
+}
+
+/**
  * Main Analysis Entry Point:
  * Tries high-speed Groq AI first (~300ms); seamlessly falls back to local Heuristic ATS engine.
  */
-export async function analyzeResume(resumeText) {
+export async function analyzeResume(resumeText, fallbackFileName = '') {
   if (!resumeText || resumeText.trim().length < 30) {
     throw new Error('Resume text is too brief to analyze. Please provide a complete resume.');
   }
+
+  const fallbackCandidate = extractCandidateName(resumeText, fallbackFileName);
 
   // 1. Attempt Groq Cloud AI analysis
   try {
     const aiResult = await callGroqAi(resumeText);
     if (aiResult && aiResult.atsScore) {
+      const candidateName =
+        aiResult.candidateName && typeof aiResult.candidateName === 'string' && aiResult.candidateName.trim().length > 1
+          ? toTitleCaseName(aiResult.candidateName)
+          : fallbackCandidate;
+
       return {
         ...aiResult,
+        candidateName,
         engine: 'Groq Cloud Neural (Qwen 3.8 / Llama)',
         isOfflineFallback: false,
       };
@@ -36,9 +92,10 @@ export async function analyzeResume(resumeText) {
   }
 
   // 2. High-precision offline rule-based heuristic engine fallback
-  const heuristicResult = analyzeWithLocalHeuristics(resumeText);
+  const heuristicResult = analyzeWithLocalHeuristics(resumeText, fallbackCandidate);
   return {
     ...heuristicResult,
+    candidateName: fallbackCandidate,
     engine: 'Local High-Precision Heuristic Engine (Offline Active)',
     isOfflineFallback: true,
   };
@@ -56,6 +113,7 @@ Analyze the provided resume and return a STRICT, VALID JSON OBJECT without any m
 The JSON MUST match this exact schema:
 {
   "atsScore": number (0 to 100),
+  "candidateName": "Full Name of the resume owner (Title Case)",
   "profileRole": "concise 2-3 word role title e.g. Software Engineer, Full-Stack Developer, Data Analyst",
   "experienceLevel": "Fresher | 1-2 Years | 2-5 Years | Senior",
   "categoryScores": {
