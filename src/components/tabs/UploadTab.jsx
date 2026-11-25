@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, FileText, Sparkles, Loader2, AlertCircle } from 'lucide-react';
-import { DEMO_RESUMES } from '../../data/demoResumes';
 import { extractResumeText } from '../../services/pdfParserService';
+import PdfGlimpseModal from '../ui/PdfGlimpseModal';
 
 const PROJECT_SUBMITTERS = [
   { name: 'Juber', serialNo: '10' },
@@ -16,6 +16,8 @@ export default function UploadTab({ onAnalyze, isLoading, error }) {
   const [rawText, setRawText] = useState('');
   const [selectedFileName, setSelectedFileName] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [glimpseFile, setGlimpseFile] = useState(null);
+  const [loadingDemoPdf, setLoadingDemoPdf] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleFileChange = async (file) => {
@@ -48,11 +50,34 @@ export default function UploadTab({ onAnalyze, isLoading, error }) {
     }
   };
 
-  // 1-Click Demo Resume Handler (loads default comprehensive demo resume)
-  const handleDemoResume = () => {
-    const demo = DEMO_RESUMES[0]; // Aarav Sharma (CS Fresher / Software Engineer)
-    setSelectedFileName(`${demo.name} (Demo Resume)`);
-    onAnalyze(demo.text, `${demo.name} Demo Resume`);
+  // Fetch vidhi_singh_resume.pdf and show a visual PDF glimpse before real-time AI scoring
+  const handleDemoResume = async () => {
+    setLoadingDemoPdf(true);
+    try {
+      const response = await fetch('/vidhi_singh_resume.pdf');
+      if (!response.ok) {
+        throw new Error('Could not load demo resume PDF.');
+      }
+      const blob = await response.blob();
+      const file = new File([blob], 'vidhi_singh_resume.pdf', { type: 'application/pdf' });
+      setGlimpseFile(file);
+    } catch (err) {
+      alert(err.message || 'Failed to load vidhi_singh_resume.pdf.');
+    } finally {
+      setLoadingDemoPdf(false);
+    }
+  };
+
+  const handleContinueFromGlimpse = async (file) => {
+    try {
+      setSelectedFileName(file.name);
+      const extracted = await extractResumeText(file);
+      await onAnalyze(extracted, file.name);
+      setGlimpseFile(null);
+    } catch (err) {
+      alert(err.message || 'Failed to extract or analyze resume PDF.');
+      setGlimpseFile(null);
+    }
   };
 
   return (
@@ -220,14 +245,26 @@ export default function UploadTab({ onAnalyze, isLoading, error }) {
         <button
           type="button"
           onClick={handleDemoResume}
-          disabled={isLoading}
-          className="px-7 py-3 rounded-full bg-gradient-to-b from-[#FFFDF9] to-[#F5ECE0] border border-[#DECBB8] hover:border-[#8C5730] shadow-[3px_5px_15px_rgba(180,150,120,0.18),-2px_-2px_6px_rgba(255,255,255,0.9)] flex items-center gap-2.5 text-xs font-bold text-[#4A3828] hover:text-[#8C5730] active:scale-95 transition-all cursor-pointer group"
-          title="Analyze Sample Resume"
+          disabled={isLoading || loadingDemoPdf}
+          className="px-7 py-3 rounded-full bg-gradient-to-b from-[#FFFDF9] to-[#F5ECE0] border border-[#DECBB8] hover:border-[#8C5730] shadow-[3px_5px_15px_rgba(180,150,120,0.18),-2px_-2px_6px_rgba(255,255,255,0.9)] flex items-center gap-2.5 text-xs font-bold text-[#4A3828] hover:text-[#8C5730] active:scale-95 transition-all cursor-pointer group disabled:opacity-60"
+          title="Preview & Analyze vidhi_singh_resume.pdf"
         >
-          <Sparkles className="w-4 h-4 text-[#8C5730] group-hover:scale-110 transition-transform flex-shrink-0" />
+          {loadingDemoPdf ? (
+            <Loader2 className="w-4 h-4 text-[#8C5730] animate-spin flex-shrink-0" />
+          ) : (
+            <Sparkles className="w-4 h-4 text-[#8C5730] group-hover:scale-110 transition-transform flex-shrink-0" />
+          )}
           <span className="tracking-wide">Demo resume</span>
         </button>
       </div>
+
+      {/* PDF Glimpse Preview Modal */}
+      <PdfGlimpseModal
+        file={glimpseFile}
+        isAnalyzing={isLoading}
+        onContinue={handleContinueFromGlimpse}
+        onClose={() => setGlimpseFile(null)}
+      />
 
       {/* Project Submitted By Table */}
       <div className="mt-4 rounded-3xl bg-[#FFFDFC]/95 border border-[#E8DEC9] shadow-[0_4px_20px_rgba(180,150,120,0.08)] overflow-hidden">

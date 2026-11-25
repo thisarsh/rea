@@ -8,7 +8,7 @@ import JobMatchTab from './components/tabs/JobMatchTab';
 import BulletOptimizerTab from './components/tabs/BulletOptimizerTab';
 import InterviewPrepTab from './components/tabs/InterviewPrepTab';
 import Toast from './components/ui/Toast';
-import { analyzeResume } from './services/aiService';
+import { analyzeResume, generateMoreInterviewQuestions } from './services/aiService';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('upload');
@@ -16,6 +16,7 @@ export default function App() {
   const [resumeName, setResumeName] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMoreQuestions, setIsLoadingMoreQuestions] = useState(false);
   const [error, setError] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -68,6 +69,27 @@ export default function App() {
     setResumeName('');
     setActiveTab('upload');
     setError(null);
+  };
+
+  const handleLoadMoreQuestions = async () => {
+    if (isLoadingMoreQuestions || !resumeText) return;
+    setIsLoadingMoreQuestions(true);
+    try {
+      const existing = analysisResult?.interviewQuestions || [];
+      const more = await generateMoreInterviewQuestions(resumeText, existing);
+      if (Array.isArray(more) && more.length > 0) {
+        setAnalysisResult((prev) => ({
+          ...prev,
+          interviewQuestions: [...(prev?.interviewQuestions || []), ...more],
+        }));
+        showToast(`Loaded ${more.length} more tailored questions!`);
+      }
+    } catch (err) {
+      console.error('Load more questions error:', err);
+      showToast('Could not generate more questions right now.');
+    } finally {
+      setIsLoadingMoreQuestions(false);
+    }
   };
 
   const showToast = (msg) => {
@@ -125,6 +147,8 @@ export default function App() {
             <InterviewPrepTab
               data={analysisResult}
               onCopy={(msg) => showToast(msg)}
+              onLoadMore={handleLoadMoreQuestions}
+              isLoadingMore={isLoadingMoreQuestions}
             />
           )}
         </main>

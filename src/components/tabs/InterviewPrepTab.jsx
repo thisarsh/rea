@@ -1,11 +1,20 @@
-import React, { useState } from 'react';
-import { Mic, ChevronDown, ChevronUp, Copy, Check, Lightbulb, List } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Mic, ChevronDown, ChevronUp, Copy, Check, Lightbulb, List, Sparkles, Loader2 } from 'lucide-react';
 
-export default function InterviewPrepTab({ data, onCopy }) {
+export default function InterviewPrepTab({ data, onCopy, onLoadMore, isLoadingMore }) {
   const [expandedIndex, setExpandedIndex] = useState(0);
   const [copiedIndex, setCopiedIndex] = useState(null);
 
   const questions = data?.interviewQuestions || [];
+  const prevLenRef = useRef(questions.length);
+
+  // Auto-expand the first newly loaded question when "+5 more" finishes
+  useEffect(() => {
+    if (questions.length > prevLenRef.current) {
+      setExpandedIndex(prevLenRef.current);
+    }
+    prevLenRef.current = questions.length;
+  }, [questions.length]);
 
   const handleCopy = (e, text, idx) => {
     e.stopPropagation();
@@ -132,6 +141,33 @@ export default function InterviewPrepTab({ data, onCopy }) {
           );
         })}
       </div>
+
+      {/* Load 5 More Tailored Questions Button when reaching the end */}
+      {questions.length > 0 && onLoadMore && (
+        <div className="pt-2 flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+            className="w-full py-3.5 px-6 rounded-full bg-gradient-to-b from-[#C07735] to-[#8C4D19] text-white text-[13px] font-bold flex items-center justify-center gap-2 shadow-[0_6px_16px_rgba(140,77,25,0.28)] active:scale-[0.98] transition-all disabled:opacity-65 cursor-pointer"
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Generating 5 More Questions...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                <span>Get More Questions (+5)</span>
+              </>
+            )}
+          </button>
+          <span className="text-[11px] font-semibold text-[#8C7A6B]">
+            Showing {questions.length} tailored questions
+          </span>
+        </div>
+      )}
     </div>
   );
 }

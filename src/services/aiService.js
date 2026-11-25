@@ -102,7 +102,67 @@ export async function analyzeResume(resumeText, fallbackFileName = '') {
 }
 
 /**
- * Call Groq API with Structured JSON output
+ * Shared Groq JSON invocation helper with model cascade & clean JSON parsing
+ */
+async function invokeGroqJson(systemPrompt, userPrompt, validateFn, maxTokens = 3400) {
+  const modelsToTry = [PRIMARY_MODEL, 'openai/gpt-oss-120b', FALLBACK_MODEL];
+  let lastError = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const res = await fetch(GROQ_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${HARDCODED_GROQ_KEY}`
+        },
+        body: JSON.stringify({
+          model,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.25,
+          max_tokens: maxTokens,
+        })
+      });
+
+      if (!res.ok) {
+        lastError = new Error(`Groq HTTP ${res.status} on ${model}`);
+        continue;
+      }
+
+      const data = await res.json();
+      let rawContent = data.choices?.[0]?.message?.content?.trim() || '';
+
+      rawContent = rawContent
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/^```json/i, '')
+        .replace(/^```/, '')
+        .replace(/```$/, '')
+        .trim();
+
+      const startIdx = rawContent.indexOf('{');
+      const endIdx = rawContent.lastIndexOf('}');
+      if (startIdx !== -1 && endIdx !== -1) {
+        rawContent = rawContent.slice(startIdx, endIdx + 1);
+      }
+
+      const candidateParsed = JSON.parse(rawContent);
+      if (validateFn(candidateParsed)) {
+        return candidateParsed;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Failed to obtain structured JSON from Groq API');
+}
+
+/**
+ * Call Groq API for Full Resume Analysis
  */
 async function callGroqAi(resumeText) {
   const truncated = resumeText.slice(0, 10000);
@@ -122,7 +182,7 @@ The JSON MUST match this exact schema:
     "skills": number (0 to 25),
     "structure": number (0 to 25)
   },
-  "verdict": "ATS Ready" | "Competitive" | "Needs Polish",
+  "verdict": "STRICTLY ONE OF THESE EXACT 3 SHORT LABELS ONLY: 'ATS Ready' OR 'Competitive' OR 'Needs Polish'",
   "summary": "2 concise sentences summarizing the candidate's core profile and top potential.",
   "strengths": ["string", "string", "string"],
   "criticalWarnings": ["string", "string", "string"],
@@ -156,55 +216,23 @@ The JSON MUST match this exact schema:
   ]
 }`;
 
-  const payload = {
-    model: PRIMARY_MODEL,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Analyze this resume:\n\n${truncated}` }
-    ],
-    temperature: 0.2,
-    max_tokens: 2200,
-  };
+  const parsed = await invokeGroqJson(
+    systemPrompt,
+    `Analyze this resume thoroughly:\n\n${truncated}`,
+    (obj) => obj && typeof obj.atsScore === 'number',
+    3400
+  );
 
-  let res = await fetch(GROQ_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${HARDCODED_GROQ_KEY}`
-    },
-    body: JSON.stringify(payload)
-  });
-
-  // If primary model failed, try secondary model
-  if (!res.ok) {
-    payload.model = FALLBACK_MODEL;
-    res = await fetch(GROQ_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${HARDCODED_GROQ_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
+  // Normalize concise verdict label for badge display
+  const rawVerdict = String(parsed.verdict || '').toLowerCase();
+  if (rawVerdict.includes('ready') || parsed.atsScore >= 82) {
+    parsed.verdict = parsed.atsScore >= 85 ? 'ATS Ready' : 'Competitive';
+  } else if (rawVerdict.includes('competitive') || parsed.atsScore >= 68) {
+    parsed.verdict = 'Competitive';
+  } else {
+    parsed.verdict = 'Needs Polish';
   }
 
-  if (!res.ok) {
-    throw new Error(`Groq HTTP error ${res.status}`);
-  }
-
-  const data = await res.json();
-  const rawContent = data.choices?.[0]?.message?.content?.trim() || '';
-
-  // Clean JSON output (strip ```json ... ``` if model enclosed it)
-  const cleanJson = rawContent
-    .replace(/^```json/i, '')
-    .replace(/^```/, '')
-    .replace(/```$/, '')
-    .trim();
-
-  const parsed = JSON.parse(cleanJson);
-
-  // Attach search links to matching jobs
   if (Array.isArray(parsed.matchingJobs)) {
     parsed.matchingJobs = parsed.matchingJobs.slice(0, 5).map(job => ({
       ...job,
@@ -213,6 +241,97 @@ The JSON MUST match this exact schema:
   }
 
   return parsed;
+}
+
+/**
+ * Real-Time API Call: Generates 5 brand-new non-overlapping tailored interview questions
+ */
+export async function generateMoreInterviewQuestions(resumeText, existingQuestions = []) {
+  const truncated = (resumeText || '').slice(0, 8000);
+  const alreadyAsked = existingQuestions
+    .map((q, idx) => `${idx + 1}. ${q.question}`)
+    .join('\n');
+
+  const systemPrompt = `You are a Principal Engineering Interviewer.
+Generate EXACTLY 5 NEW, DISTINCT, deep interview questions tailored to this candidate's actual resume projects, skills, and experience.
+DO NOT repeat or closely paraphrase any question from the previously asked list.
+Return ONLY strict JSON matching:
+{
+  "interviewQuestions": [
+    {
+      "question": "Specific project, architecture, debugging, or behavioral question",
+      "type": "System Design" | "Technical" | "Behavioral",
+      "whyAsked": "Why interviewers ask this specific question.",
+      "keyTalkingPoints": ["Point 1", "Point 2", "Point 3"]
+    }
+  ]
+}`;
+
+  const userPrompt = `Resume:\n${truncated}\n\nPreviously asked questions (DO NOT REPEAT):\n${alreadyAsked || 'None'}`;
+
+  try {
+    const parsed = await invokeGroqJson(
+      systemPrompt,
+      userPrompt,
+      (obj) => obj && Array.isArray(obj.interviewQuestions) && obj.interviewQuestions.length > 0,
+      2400
+    );
+    return parsed.interviewQuestions.slice(0, 5);
+  } catch (err) {
+    console.warn('[AI Service] More interview questions fallback:', err.message);
+    return [
+      {
+        question: 'Walk me through a production bug or edge case you encountered in one of your listed projects and how you traced the root cause.',
+        type: 'Technical',
+        whyAsked: 'Evaluates debugging methodology, observability tooling, and calm problem-solving.',
+        keyTalkingPoints: [
+          'Explain how you reproduced and isolated the failing component.',
+          'Mention specific logs, network traces, or profiler metrics you inspected.',
+          'Describe the permanent fix and regression test added.'
+        ]
+      },
+      {
+        question: 'If your highest-traffic project suddenly saw a 10x spike in concurrent users tomorrow, which bottleneck would fail first?',
+        type: 'System Design',
+        whyAsked: 'Tests practical scalability instincts around database connections, caching, and API throughput.',
+        keyTalkingPoints: [
+          'Identify the database / connection pool or single-threaded compute limit.',
+          'Propose horizontal scaling, read replicas, or Redis/CDN offload.',
+          'Mention rate limiting and graceful degradation strategies.'
+        ]
+      },
+      {
+        question: 'Tell me about a time you disagreed with a teammate or mentor on a technical architecture choice. How did you resolve it?',
+        type: 'Behavioral',
+        whyAsked: 'Assesses collaboration, ego-free communication, and data-driven engineering decisions.',
+        keyTalkingPoints: [
+          'Frame both viewpoints fairly with clear engineering trade-offs.',
+          'Show how you used prototypes, benchmarks, or requirements to align.',
+          'Share what you learned and how team velocity improved.'
+        ]
+      },
+      {
+        question: 'How did you design authentication, authorization, and data validation across your full-stack APIs to prevent security vulnerabilities?',
+        type: 'System Design',
+        whyAsked: 'Verifies secure coding awareness around JWT/sessions, CORS, SQL injection, and RBAC.',
+        keyTalkingPoints: [
+          'Discuss token storage, expiration/rotation, and server-side role checks.',
+          'Explain schema validation and parameterized database queries.',
+          'Note protection against CSRF, XSS, and brute-force requests.'
+        ]
+      },
+      {
+        question: 'Which project on your resume required learning an unfamiliar technology quickly, and how did you verify production readiness?',
+        type: 'Behavioral',
+        whyAsked: 'Measures learning agility, documentation rigor, and ownership quality.',
+        keyTalkingPoints: [
+          'Highlight the tight timeline or ambiguous requirements.',
+          'Detail how you broke the learning curve into testable milestones.',
+          'Mention concrete validation (unit tests, load checks, user feedback).'
+        ]
+      }
+    ];
+  }
 }
 
 /**
