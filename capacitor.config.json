@@ -7,7 +7,7 @@
     "allowMixedContent": false
   },
   "server": {
-    "url": "https://reakcc.netlify.app/",
+    "url": "https://reakcc.onrender.com/",
     "cleartext": false,
     "androidScheme": "https"
   },

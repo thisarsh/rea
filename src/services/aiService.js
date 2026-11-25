@@ -1,4 +1,3 @@
-import groqKeyData from './groqKey.json';
 import {
   SKILL_CATEGORIES,
   STRONG_ACTION_VERBS,
@@ -7,8 +6,7 @@ import {
   getJobSearchUrls
 } from '../data/skillsDatabase';
 
-const HARDCODED_GROQ_KEY = groqKeyData.key;
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+const LOCAL_PROXY_ENDPOINT = '/api/groq';
 const PRIMARY_MODEL = 'qwen/qwen3.8-27b';
 const FALLBACK_MODEL = 'openai/gpt-oss-20b';
 
@@ -104,28 +102,30 @@ export async function analyzeResume(resumeText, fallbackFileName = '') {
 /**
  * Shared Groq JSON invocation helper with model cascade & clean JSON parsing
  */
+async function sendGroqRequest(payloadObj) {
+  const res = await fetch(LOCAL_PROXY_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payloadObj),
+  });
+  return res;
+}
+
 async function invokeGroqJson(systemPrompt, userPrompt, validateFn, maxTokens = 3400) {
   const modelsToTry = [PRIMARY_MODEL, 'openai/gpt-oss-120b', FALLBACK_MODEL];
   let lastError = null;
 
   for (const model of modelsToTry) {
     try {
-      const res = await fetch(GROQ_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${HARDCODED_GROQ_KEY}`
-        },
-        body: JSON.stringify({
-          model,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.25,
-          max_tokens: maxTokens,
-        })
+      const res = await sendGroqRequest({
+        model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.25,
+        max_tokens: maxTokens,
       });
 
       if (!res.ok) {

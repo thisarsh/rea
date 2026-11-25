@@ -42,6 +42,8 @@ jobs:
         run: npm install
 
       - name: Build Web Application
+        env:
+          VITE_GROQ_API_KEY: ${{ secrets.VITE_GROQ_API_KEY || secrets.GROQ_API_KEY }}
         run: npm run build
 
       - name: Sync Capacitor Android
@@ -69,7 +71,7 @@ jobs:
           APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
           gh release create "$TAG" "$APK_PATH" \
             --title "ReA Mobile v1.0.${{ github.run_number }}" \
-            --notes "Automated Android APK pointing to https://reakcc.netlify.app/ (built from commit ${{ github.sha }})." || true
+            --notes "Automated Android APK pointing to https://reakcc.onrender.com/ (built from commit ${{ github.sha }})." || true
 
       - name: Prune Previous APK Artifacts
         if: steps.build_apk.outcome == 'success'

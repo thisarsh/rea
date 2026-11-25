@@ -1,9 +1,8 @@
-﻿FROM node:18-alpine
+FROM node:20-alpine
 WORKDIR /app
-COPY frontend/package*.json ./
+COPY package*.json ./
 RUN npm install
-COPY frontend/ ./
+COPY . ./
 RUN npm run build
-RUN npm install -g serve
 EXPOSE 7860
-CMD ["serve", "-s", "dist", "-l", "7860"]
+CMD ["node", "server.js"]
