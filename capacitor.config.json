@@ -1,0 +1,8 @@
+{
+  "appId": "com.rea.resumeanalyzer",
+  "appName": "ReA",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
